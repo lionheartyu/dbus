@@ -1,0 +1,434 @@
+From 263f1fd97081e000e04e9e79864bc4c4eaa86e7e Mon Sep 17 00:00:00 2001
+From: liaohanqin <liaohanqin@uniontech.com>
+Date: Thu, 19 Jun 2025 11:35:06 +0800
+Subject: [PATCH] feat: add whitelist for limit
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+补充limit结构，提供一个白名单和每个用户包括白名单在内的最大连接数。
+在不超过每个用户包括白名单在内的最大连接数的情况下，白名单中的用户进程
+可以绕过limit检测机制。
+
+Log:  add whitelist for limit
+Task: https://pms.uniontech.com/task-view-373599.html
+Influence: dbus-daemon
+Signed-off-by: liaohanqin <liaohanqin@uniontech.com>
+
+diff --git a/bus/bus.c b/bus/bus.c
+index 2ec125b..c980786 100644
+--- a/bus/bus.c
++++ b/bus/bus.c
+@@ -1486,10 +1486,16 @@ int
+ bus_context_get_max_connections_per_user (BusContext *context)
+ {
+   return context->limits.max_connections_per_user;
+ }
+ 
++int
++bus_context_get_max_connections_per_user_wl (BusContext *context)
++{
++  return context->limits.max_connections_per_user_wl;
++}
++
+ int
+ bus_context_get_max_pending_activations (BusContext *context)
+ {
+   return context->limits.max_pending_activations;
+ }
+@@ -1516,10 +1522,16 @@ int
+ bus_context_get_reply_timeout (BusContext *context)
+ {
+   return context->limits.reply_timeout;
+ }
+ 
++DBusList *
++bus_context_get_whitelist (BusContext *context)
++{
++  return context->limits.whitelist;
++}
++
+ int bus_context_get_max_containers (BusContext *context)
+ {
+   return context->limits.max_containers;
+ }
+ 
+diff --git a/bus/bus.h b/bus/bus.h
+index bc8b42c..30b771e 100644
+--- a/bus/bus.h
++++ b/bus/bus.h
+@@ -59,15 +59,17 @@ typedef struct
+   int auth_timeout;                 /**< How long to wait for an authentication to time out */
+   int pending_fd_timeout;           /**< How long to wait for a D-Bus message with a fd to time out */
+   int max_completed_connections;    /**< Max number of authorized connections */
+   int max_incomplete_connections;   /**< Max number of incomplete connections */
+   int max_connections_per_user;     /**< Max number of connections auth'd as same user */
++  int max_connections_per_user_wl;  /**< Max number of connections auth'd as same user with whitelist */
+   int max_pending_activations;      /**< Max number of pending activations for the entire bus */
+   int max_services_per_connection;  /**< Max number of owned services for a single connection */
+   int max_match_rules_per_connection; /**< Max number of match rules for a single connection */
+   int max_replies_per_connection;     /**< Max number of replies that can be pending for each connection */
+   int reply_timeout;                  /**< How long to wait before timing out a reply */
++  DBusList *whitelist;                /**< Whitelist to store allowed items */
+   int max_containers;               /**< Max number of restricted servers for app-containers */
+   int max_containers_per_user;      /**< Max number of restricted servers for app-containers, per user */
+   int max_connections_per_container;  /**< Max number of connections per restricted server */
+   int max_container_metadata_bytes; /**< Max number of bytes of metadata per restricted server */
+ } BusLimits;
+@@ -121,15 +123,17 @@ int               bus_context_get_activation_timeout             (BusContext
+ int               bus_context_get_auth_timeout                   (BusContext       *context);
+ int               bus_context_get_pending_fd_timeout             (BusContext       *context);
+ int               bus_context_get_max_completed_connections      (BusContext       *context);
+ int               bus_context_get_max_incomplete_connections     (BusContext       *context);
+ int               bus_context_get_max_connections_per_user       (BusContext       *context);
++int               bus_context_get_max_connections_per_user_wl    (BusContext       *context);
+ int               bus_context_get_max_pending_activations        (BusContext       *context);
+ int               bus_context_get_max_services_per_connection    (BusContext       *context);
+ int               bus_context_get_max_match_rules_per_connection (BusContext       *context);
+ int               bus_context_get_max_replies_per_connection     (BusContext       *context);
+ int               bus_context_get_reply_timeout                  (BusContext       *context);
++DBusList *        bus_context_get_whitelist                      (BusContext       *context);
+ int               bus_context_get_max_containers                 (BusContext       *context);
+ int               bus_context_get_max_containers_per_user        (BusContext       *context);
+ int               bus_context_get_max_container_metadata_bytes   (BusContext       *context);
+ int               bus_context_get_max_connections_per_container  (BusContext       *context);
+ DBusRLimit *      bus_context_get_initial_fd_limit               (BusContext       *context);
+diff --git a/bus/config-parser.c b/bus/config-parser.c
+index 9f2e3c7..3e33d07 100644
+--- a/bus/config-parser.c
++++ b/bus/config-parser.c
+@@ -515,10 +515,11 @@ bus_config_parser_new (const DBusString      *basedir,
+        */
+       parser->limits.pending_fd_timeout = 150000; /* 2.5 minutes */
+       
+       parser->limits.max_incomplete_connections = 64;
+       parser->limits.max_connections_per_user = 256;
++      parser->limits.max_connections_per_user_wl = 256;
+       parser->limits.max_containers_per_user = 16;
+       
+       /* Note that max_completed_connections / max_connections_per_user
+        * is the number of users that would have to work together to
+        * DOS all the other users. The same applies to containers.
+@@ -589,10 +590,11 @@ bus_config_parser_unref (BusConfigParser *parser)
+       _dbus_list_clear_full (&parser->listen_on, dbus_free);
+       _dbus_list_clear_full (&parser->service_dirs,
+                              (DBusFreeFunction) bus_config_service_dir_free);
+       _dbus_list_clear_full (&parser->conf_dirs, dbus_free);
+       _dbus_list_clear_full (&parser->mechanisms, dbus_free);
++      _dbus_list_clear_full (&parser->limits.whitelist, dbus_free);
+ 
+       _dbus_string_free (&parser->basedir);
+ 
+       if (parser->policy)
+         bus_policy_unref (parser->policy);
+@@ -2143,10 +2145,16 @@ set_limit (BusConfigParser *parser,
+     {
+       must_be_positive = TRUE;
+       must_be_int = TRUE;
+       parser->limits.max_connections_per_user = value;
+     }
++  else if (strcmp (name, "max_connections_per_user_wl") == 0)
++    {
++      must_be_positive = TRUE;
++      must_be_int = TRUE;
++      parser->limits.max_connections_per_user_wl = value;
++    }
+   else if (strcmp (name, "max_pending_service_starts") == 0)
+     {
+       must_be_positive = TRUE;
+       must_be_int = TRUE;
+       parser->limits.max_pending_activations = value;
+@@ -2283,11 +2291,11 @@ bus_config_parser_end_element (BusConfigParser   *parser,
+                           "XML element <%s> was expected to have content inside it",
+                           bus_config_parser_element_type_to_name (e->type));
+           return FALSE;
+         }
+ 
+-      if (e->type == ELEMENT_LIMIT)
++      if (e->type == ELEMENT_LIMIT && strcmp (e->d.limit.name, "whitelist") != 0)
+         {
+           if (!set_limit (parser, e->d.limit.name, e->d.limit.value,
+                           error))
+             return FALSE;
+         }
+@@ -2848,28 +2856,47 @@ bus_config_parser_content (BusConfigParser   *parser,
+       }
+       break;
+ 
+     case ELEMENT_LIMIT:
+       {
+-        long val;
++        if (strcmp (e->d.limit.name, "whitelist") == 0)
++          {
++            char *s;
+ 
+-        e->had_content = TRUE;
++            e->had_content = TRUE;
+ 
+-        val = 0;
+-        if (!_dbus_string_parse_int (content, 0, &val, NULL))
+-          {
+-            dbus_set_error (error, DBUS_ERROR_FAILED,
+-                            "<limit name=\"%s\"> element has invalid value (could not parse as integer)",
+-                            e->d.limit.name);
+-            return FALSE;
++            if (!_dbus_string_copy_data (content, &s))
++              goto nomem;
++
++            if (!_dbus_list_append (&parser->limits.whitelist,
++                                    s))
++              {
++                dbus_free (s);
++                goto nomem;
++              }
+           }
++        else
++          {
++            long val;
++
++            e->had_content = TRUE;
++
++            val = 0;
++            if (!_dbus_string_parse_int (content, 0, &val, NULL))
++              {
++                dbus_set_error (error, DBUS_ERROR_FAILED,
++                                "<limit name=\"%s\"> element has invalid value (could not parse as integer)",
++                                e->d.limit.name);
++                return FALSE;
++              }
+ 
+-        e->d.limit.value = val;
++            e->d.limit.value = val;
+ 
+-        _dbus_verbose ("Loaded value %ld for limit %s\n",
+-                       e->d.limit.value,
+-                       e->d.limit.name);
++            _dbus_verbose ("Loaded value %ld for limit %s\n",
++                           e->d.limit.value,
++                           e->d.limit.name);
++          }
+       }
+       break;
+     }
+ 
+   _DBUS_ASSERT_ERROR_IS_CLEAR (error);
+@@ -3503,11 +3530,12 @@ config_parsers_equal (const BusConfigParser *a,
+     return FALSE;
+   
+   /* FIXME: compare policy */
+ 
+   /* FIXME: compare service selinux ID table */
+-
++  if (!lists_of_c_strings_equal (a->limits.whitelist, b->limits.whitelist))
++    return FALSE;
+   if (! limits_equal (&a->limits, &b->limits))
+     return FALSE;
+ 
+   if (!strings_equal_or_both_null (a->pidfile, b->pidfile))
+     return FALSE;
+diff --git a/bus/connection.c b/bus/connection.c
+index b912d89..3d421f9 100644
+--- a/bus/connection.c
++++ b/bus/connection.c
+@@ -1709,10 +1709,16 @@ bus_connections_check_limits (BusConnections  *connections,
+                               int             *limit_out,
+                               DBusError       *error)
+ {
+   unsigned long uid;
+   int limit;
++  DBusList *whitelist;
++  DBusList *whitelist_iter;
++  unsigned long pid;
++  char executable_path[256];
++  dbus_bool_t in_whitelist = FALSE;
++  int connections_for_uid;
+ 
+   limit = bus_context_get_max_completed_connections (connections->context);
+ 
+   if (connections->n_completed >= limit)
+     {
+@@ -1728,13 +1734,52 @@ bus_connections_check_limits (BusConnections  *connections,
+     }
+   
+   if (dbus_connection_get_unix_user (requesting_completion, &uid))
+     {
+       limit = bus_context_get_max_connections_per_user (connections->context);
++      connections_for_uid = get_connections_for_uid (connections, uid);
+ 
+-      if (get_connections_for_uid (connections, uid) >= limit)
++      if (connections_for_uid >= limit)
+         {
++          if (connections_for_uid < bus_context_get_max_connections_per_user_wl (connections->context))
++            {
++              whitelist = bus_context_get_whitelist (connections->context);
++              /* Check executable path whitelist first */
++              if (whitelist != NULL)
++                {
++                  if (dbus_connection_get_unix_process_id (requesting_completion, &pid))
++                    {
++                      if (_dbus_get_executable_path_from_pid (pid, executable_path, sizeof(executable_path)))
++                        {
++                          whitelist_iter = _dbus_list_get_first_link (&whitelist);
++                          while (whitelist_iter != NULL)
++                            {
++                              char *whitelist_path = whitelist_iter->data;
++                              if (strcmp (whitelist_path, executable_path) == 0)
++                                {
++                                  /* Executable path is in whitelist, bypass limits */
++                                  in_whitelist = TRUE;
++                                  break;
++                                }
++                              whitelist_iter = _dbus_list_get_next_link(&whitelist, whitelist_iter);
++                            }
++                        }
++                      else
++                        {
++                          _dbus_warn("Could not get executable path for PID %lu, skipping path whitelist check", pid);
++                        }
++                    }
++                  else
++                    {
++                      _dbus_verbose("Could not get PID for connection, skipping path whitelist check");
++                    }
++                }
++            }
++
++          if (in_whitelist)
++            return TRUE; /* Already in whitelist, bypass limits */
++
+           if (limit_name_out != NULL)
+             *limit_name_out = "max_connections_per_user";
+ 
+           if (limit_out != NULL)
+             *limit_out = limit;
+diff --git a/dbus/dbus-internals.c b/dbus/dbus-internals.c
+index ab498b1..3cac68b 100644
+--- a/dbus/dbus-internals.c
++++ b/dbus/dbus-internals.c
+@@ -1157,6 +1157,102 @@ _dbus_test_oom_handling (const char             *description,
+ 
+   return TRUE;
+ }
+ #endif /* DBUS_ENABLE_EMBEDDED_TESTS */
+ 
++#ifdef DBUS_UNIX /* Or use a more specific Linux macro if available */
++#include <unistd.h>
++#include <stdio.h>
++#include <limits.h> /* For PATH_MAX */
++#include <errno.h>
++#include <fnmatch.h>
++
++dbus_bool_t
++_dbus_get_executable_path_from_pid (unsigned long pid,
++                                    char          *path_buffer,
++                                    size_t         buffer_size)
++{
++  char proc_path[64]; /* /proc/%lu/cmdline + null terminator */
++  FILE *cmdline_file;
++  size_t bytes_read;
++
++  if (buffer_size <= 0)
++    return FALSE;
++
++  snprintf (proc_path, sizeof (proc_path), "/proc/%lu/cmdline", pid);
++
++  errno = 0;
++  cmdline_file = fopen (proc_path, "r");
++  if (cmdline_file == NULL)
++    {
++      if (errno == ENOENT) /* Process may have exited */
++        return FALSE;
++      _dbus_warn ("fopen(\"%s\", \"r\") failed: %s", proc_path, strerror (errno));
++      return FALSE; /* Treat other errors as failure to get path */
++    }
++
++  bytes_read = fread(path_buffer, 1, buffer_size - 1, cmdline_file);
++  if (ferror (cmdline_file))
++    {
++      _dbus_warn ("fread(\"%s\", ...) failed: %s\n", proc_path, strerror (errno));
++      fclose(cmdline_file);
++      return FALSE;
++    }
++
++  if (bytes_read == 0)
++    {
++      path_buffer[0] = '\0'; // Ensure null termination even if empty read.
++      return FALSE;
++    }
++
++  path_buffer[bytes_read] = '\0';
++
++  return TRUE;
++}
++
++dbus_bool_t
++_dbus_fnmatch (const char *pattern, const char *filename)
++{
++  int result;
++
++  result = fnmatch(pattern, filename, 0);
++
++  if (result == 0)
++    {
++      return TRUE;
++    }
++  else if (result == FNM_NOMATCH)
++    {
++      return FALSE;
++    }
++  else
++    {
++      _dbus_warn ("an error occurred while matching\n");
++      return FALSE;
++    }
++}
++
++#else /* !DBUS_UNIX - Implement for other platforms if needed */
++
++dbus_bool_t
++_dbus_get_executable_path_from_pid (unsigned long pid,
++                                    char          *path_buffer,
++                                    size_t         buffer_size)
++{
++  /* Implement platform-specific code to get executable path from PID */
++  /* For example, on macOS you might use proc_pidpath() */
++  /* On Windows, you might use GetModuleFileNameEx() */
++
++  _dbus_warn ("_dbus_get_executable_path_from_pid not implemented for this platform");
++  return FALSE;
++}
++
++dbus_bool_t
++_dbus_fnmatch (const char *pattern, const char *filename)
++{
++  _dbus_warn ("_dbus_fnmatch not implemented for this platform");
++  return FALSE;
++}
++
++#endif /* DBUS_UNIX */
++
+ /** @} */
+diff --git a/dbus/dbus-internals.h b/dbus/dbus-internals.h
+index 67e4d59..98c425e 100644
+--- a/dbus/dbus-internals.h
++++ b/dbus/dbus-internals.h
+@@ -461,10 +461,16 @@ dbus_bool_t _dbus_write_uuid_file (const DBusString *filename,
+ 
+ DBUS_PRIVATE_EXPORT
+ dbus_bool_t _dbus_get_local_machine_uuid_encoded (DBusString *uuid_str,
+                                                   DBusError  *error);
+ 
++DBUS_PRIVATE_EXPORT
++dbus_bool_t _dbus_get_executable_path_from_pid (unsigned long pid, char *path_buffer, size_t buffer_size);
++
++DBUS_PRIVATE_EXPORT
++dbus_bool_t _dbus_fnmatch (const char *pattern, const char *filename);
++
+ #define _DBUS_PASTE2(a, b) a ## b
+ #define _DBUS_PASTE(a, b) _DBUS_PASTE2 (a, b)
+ #define _DBUS_STATIC_ASSERT(expr) \
+   typedef struct { char _assertion[(expr) ? 1 : -1]; } \
+   _DBUS_PASTE (_DBUS_STATIC_ASSERT_, __LINE__) _DBUS_GNUC_UNUSED
+-- 
+2.20.1
+

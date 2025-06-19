@@ -1,3 +1,9 @@
+dbus (1.14.10-3-1deepin3) unstable; urgency=medium
+
+  * add whitelist for limit
+
+ -- liaohanqin <liaohanqin@uniontech.com>  Thu, 19 Jun 2025 13:45:59 +0800
+
 dbus (1.14.10-3-1deepin2) unstable; urgency=medium
 
   * feat: version to 1.14.10-3-1deepin2 to push mips64el.

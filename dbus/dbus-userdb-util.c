@@ -220,14 +220,23 @@ _dbus_get_user_id_and_primary_group (const DBusString  *username,
 {
   DBusUserDatabase *db;
   const DBusUserInfo *info;
+  const char *username_cstr;
 
   /* FIXME: this can't distinguish ENOMEM from other errors */
+  username_cstr = _dbus_string_get_const_data (username);
+
   if (!_dbus_user_database_lock_system ())
-    return FALSE;
+    {
+      _dbus_verbose ("_dbus_get_user_id_and_primary_group: failed to lock user database for '%s'\n",
+                     username_cstr);
+      return FALSE;
+    }
 
   db = _dbus_user_database_get_system ();
   if (db == NULL)
     {
+      _dbus_verbose ("_dbus_get_user_id_and_primary_group: failed to get system database for '%s'\n",
+                     username_cstr);
       _dbus_user_database_unlock_system ();
       return FALSE;
     }
@@ -235,6 +244,8 @@ _dbus_get_user_id_and_primary_group (const DBusString  *username,
   if (!_dbus_user_database_get_username (db, username,
                                          &info, NULL))
     {
+      _dbus_verbose ("_dbus_get_user_id_and_primary_group: username '%s' not found in database\n",
+                     username_cstr);
       _dbus_user_database_unlock_system ();
       return FALSE;
     }
@@ -243,7 +254,11 @@ _dbus_get_user_id_and_primary_group (const DBusString  *username,
     *uid_p = info->uid;
   if (gid_p)
     *gid_p = info->primary_gid;
-  
+
+  _dbus_verbose ("_dbus_get_user_id_and_primary_group: username '%s' -> uid=%" DBUS_UID_FORMAT
+                 " gid=%" DBUS_GID_FORMAT "\n",
+                 username_cstr, info->uid, info->primary_gid);
+
   _dbus_user_database_unlock_system ();
   return TRUE;
 }

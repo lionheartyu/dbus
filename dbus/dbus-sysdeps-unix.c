@@ -2735,6 +2735,13 @@ fill_user_info (DBusUserInfo       *info,
       }
     else
       {
+        _dbus_warn ("userdb: fill_user_info getpw* failed uid=%" DBUS_UID_FORMAT
+                    " user=%s result=%d errno=%d p=%p",
+                    uid,
+                    username_c ? username_c : "(null)",
+                    result,
+                    errno,
+                    p);
         dbus_set_error (error, _dbus_error_from_errno (errno),
                         "User \"%s\" unknown or no memory to allocate password entry\n",
                         username_c ? username_c : "???");
@@ -2764,6 +2771,12 @@ fill_user_info (DBusUserInfo       *info,
       }
     else
       {
+        _dbus_warn ("userdb: fill_user_info getpw* failed uid=%" DBUS_UID_FORMAT
+                    " user=%s errno=%d p=%p",
+                    uid,
+                    username_c ? username_c : "(null)",
+                    errno,
+                    p);
         dbus_set_error (error, _dbus_error_from_errno (errno),
                         "User \"%s\" unknown or no memory to allocate password entry\n",
                         username_c ? username_c : "???");

@@ -161,9 +161,12 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
                             DBusError        *error)
 {
   DBusUserInfo *info;
+  const char *username_cstr;
 
   _DBUS_ASSERT_ERROR_IS_CLEAR (error);
   _dbus_assert (uid != DBUS_UID_UNSET || username != NULL);
+
+  username_cstr = username ? _dbus_string_get_const_data (username) : NULL;
 
   /* See if the username is really a number */
   if (uid == DBUS_UID_UNSET)
@@ -198,6 +201,9 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
       if (info == NULL)
         {
           dbus_set_error (error, DBUS_ERROR_NO_MEMORY, NULL);
+          _dbus_warn ("userdb: lookup oom uid=%" DBUS_UID_FORMAT " user=%s",
+                      uid,
+                      username_cstr ? username_cstr : "(null)");
           return NULL;
         }
       info->refcount = 1;
@@ -207,6 +213,9 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
           if (!_dbus_user_info_fill_uid (info, uid, error))
             {
               _DBUS_ASSERT_ERROR_IS_SET (error);
+              _dbus_warn ("userdb: lookup uid=%" DBUS_UID_FORMAT " failed: %s",
+                          uid,
+                          (error && error->message) ? error->message : "(none)");
               _dbus_user_info_unref (info);
               return NULL;
             }
@@ -216,6 +225,9 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
           if (!_dbus_user_info_fill (info, username, error))
             {
               _DBUS_ASSERT_ERROR_IS_SET (error);
+              _dbus_warn ("userdb: lookup user=%s failed: %s",
+                          username_cstr ? username_cstr : "(null)",
+                          (error && error->message) ? error->message : "(none)");
               _dbus_user_info_unref (info);
               return NULL;
             }
@@ -233,6 +245,8 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
       else
         {
           dbus_set_error (error, DBUS_ERROR_NO_MEMORY, NULL);
+          _dbus_warn ("userdb: cache uid insert oom uid=%" DBUS_UID_FORMAT,
+                      info->uid);
           _dbus_user_info_unref (info);
           return NULL;
         }
@@ -247,6 +261,8 @@ _dbus_user_database_lookup (DBusUserDatabase *db,
         {
           _dbus_hash_table_remove_uintptr (db->users, info->uid);
           dbus_set_error (error, DBUS_ERROR_NO_MEMORY, NULL);
+          _dbus_warn ("userdb: cache user insert oom user=%s",
+                      info->username ? info->username : "(null)");
           _dbus_user_info_unref (info);
           return NULL;
         }
@@ -725,6 +741,11 @@ _dbus_user_database_get_username  (DBusUserDatabase     *db,
                                    DBusError            *error)
 {
   *info = _dbus_user_database_lookup (db, DBUS_UID_UNSET, username, error);
+  _dbus_warn ("userdb: get_username info=%p error=%s",
+              *info,
+              (error && dbus_error_is_set (error) && error->message)
+                ? error->message
+                : "(none)");
   return *info != NULL;
 }
 

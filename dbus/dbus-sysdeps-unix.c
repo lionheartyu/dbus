@@ -2759,15 +2759,15 @@ fill_user_info (DBusUserInfo       *info,
       {
         if (!fill_user_info_from_passwd (p, info, error))
           {
+            _dbus_warn ("userdb: fill_user_info_from_passwd failed uid=%" DBUS_UID_FORMAT
+                        " user=%s",
+                        uid,
+                        username_c ? username_c : "(null)");
             return FALSE;
           }
       }
     else
       {
-        _dbus_warn ("userdb: fill_user_info lookup failed uid=%" DBUS_UID_FORMAT
-                    " user=%s",
-                    uid,
-                    username_c ? username_c : "(null)");
         dbus_set_error (error, _dbus_error_from_errno (errno),
                         "User \"%s\" unknown or no memory to allocate password entry\n",
                         username_c ? username_c : "???");

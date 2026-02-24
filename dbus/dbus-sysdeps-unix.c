@@ -2672,7 +2672,7 @@ fill_user_info (DBusUserInfo       *info,
     username_c = _dbus_string_get_const_data (username);
   else
     username_c = NULL;
-
+  _dbus_warn("fill_user_info: username_c='%s'\n", username_c ? username_c : "(null)");
   /* For now assuming that the getpwnam() and getpwuid() flavors
    * are always symmetrical, if not we have to add more configure
    * checks

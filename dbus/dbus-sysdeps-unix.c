@@ -2707,12 +2707,13 @@ fill_user_info (DBusUserInfo       *info,
           }
 
         p = NULL;
-        if (uid != DBUS_UID_UNSET)
-          result = getpwuid_r (uid, &p_str, buf, buflen,
-                               &p);
-        else
-          result = getpwnam_r (username_c, &p_str, buf, buflen,
-                               &p);
+        if (uid != DBUS_UID_UNSET) {
+            result = getpwuid_r(uid, &p_str, buf, buflen, &p);
+            _dbus_warn("fill_user_info: called getpwuid_r, p=%p, p_str=%p\n", (void*)p, (void*)&p_str);
+        } else {
+            result = getpwnam_r(username_c, &p_str, buf, buflen, &p);
+            _dbus_warn("fill_user_info: called getpwnam_r, p=%p, p_str=%p\n", (void*)p, (void*)&p_str);
+        }
         //Try a bigger buffer if ERANGE was returned
         if (result == ERANGE && buflen < 512 * 1024)
           {

@@ -2711,10 +2711,10 @@ fill_user_info (DBusUserInfo       *info,
             result = getpwuid_r(uid, &p_str, buf, buflen, &p);
             _dbus_warn("fill_user_info: called getpwuid_r, p=%p, p_str=%p\n", (void*)p, (void*)&p_str);
         } else {
-          if (username_c && strcmp(username_c, "systemd-resolve") == 0) {
-              _dbus_warn("fill_user_info: sleep 1 seconds for systemd-resolve\n");
-              sleep(1);
-           }
+          // if (username_c && strcmp(username_c, "systemd-resolve") == 0) {
+          //     _dbus_warn("fill_user_info: sleep 1 seconds for systemd-resolve\n");
+          //     sleep(1);
+          //  }
             result = getpwnam_r(username_c, &p_str, buf, buflen, &p);
             _dbus_warn("fill_user_info: called getpwnam_r, p=%p, p_str=%p\n", (void*)p, (void*)&p_str);
         }
